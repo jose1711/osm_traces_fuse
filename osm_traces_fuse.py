@@ -19,6 +19,9 @@ import io
 import argparse
 import xml.etree.ElementTree as ET
 import requests
+import magic
+import bz2
+import gzip
 
 from fuse import FUSE, Operations
 from xml.etree.ElementTree import ParseError as PError
@@ -54,7 +57,10 @@ class OsmTraces(Operations):
         else:
             attr['st_mode'] = stat.S_IFREG | 0o400
             try:
-                attr['st_size'] = int(os.path.split(path)[-1].split('.')[0])
+                parent_dir = os.path.split(path)[0][1:]
+                tid, data = self.track_dir[parent_dir]
+                size = len(data.content)
+                attr['st_size'] = size
             except:
                 attr['st_size'] = 0
         try:
@@ -66,7 +72,6 @@ class OsmTraces(Operations):
         attr['st_mtime'] = times
         attr['st_gid'] = 0
         attr['st_nlink'] = 1
-        attr['st_uid'] = 1000
         return(attr)
 
     def readdir(self, path, fh):
@@ -75,12 +80,28 @@ class OsmTraces(Operations):
             for gpx in self.track_dir:
                 dirents.extend([gpx])
         else:
-            id = self.track_dir[path[1:]][0]
-            data = requests.get(_urlget % id, auth=(self.user, self.password))
+            tid = self.track_dir[path[1:]][0]
+            data = requests.get(_urlget % tid, auth=(self.user, self.password))
             extension = re.sub(r'.*filename="[^"]+?(\.[^"]+)"', r'\1',
                                data.headers['Content-Disposition'])
             self.track_dir[path[1:]][1] = data
-            dirents.append(str(len(data.content)) + extension)
+            detected_type = magic.detect_from_content(data.content).mime_type
+            type2fun = {'application/x-bzip2': bz2.decompress,
+                        'application/x-gzip': gzip.decompress,
+                        'text/xml': bytes,
+                        'text/plain': bytes}
+            conv_fun = type2fun.get(detected_type, None)
+            if conv_fun:
+                timedate_data = re.search(b'<time>([^T]+)T([^:]+:[^:]+):',
+                                          type2fun[detected_type](data.content))
+                date_data = timedate_data.group(1)
+                time_data = timedate_data.group(2)
+            else:
+                time_data = b'notime'
+            dirents.append('{0}_{1}_{2}{3}'.format(tid,
+                                                   date_data.decode('ascii'),
+                                                   time_data.decode('ascii'),
+                                                   extension))
         for r in dirents:
             yield r
 
