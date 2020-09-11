@@ -22,6 +22,7 @@ import requests
 import magic
 import bz2
 import gzip
+import logging
 
 from fuse import FUSE, Operations
 from xml.etree.ElementTree import ParseError as PError
@@ -42,7 +43,7 @@ class OsmTraces(Operations):
             raise Exception('Error getting tracks: Probably a bad user/password combination')
         # self.track_dir is the main directory holding id and track data
         self.track_dir = dict()
-        for _, gpx in enumerate(tree.getchildren()):
+        for _, gpx in enumerate(tree):
             self.track_dir['{0}_{1}'.format(gpx.get('timestamp'), gpx.get('id'))] = [gpx.get('id'), None]
         print('{0} tracks loaded'.format(_+1))
 
@@ -82,8 +83,11 @@ class OsmTraces(Operations):
         else:
             tid = self.track_dir[path[1:]][0]
             data = requests.get(_urlget % tid, auth=(self.user, self.password))
-            extension = re.sub(r'.*filename="[^"]+?(\.[^"]+)"', r'\1',
-                               data.headers['Content-Disposition'])
+            logging.debug(data.headers['Content-Disposition'])
+            filename = re.sub(r'.*filename="([^"]+?)".*', r'\1',
+                              data.headers['Content-Disposition'])
+            logging.debug('filename: {}'.format(filename))
+            extension = re.match(r'([^.]+)(\..*)$', filename).groups()[1]
             self.track_dir[path[1:]][1] = data
             detected_type = magic.detect_from_content(data.content).mime_type
             type2fun = {'application/x-bzip2': bz2.decompress,
@@ -130,6 +134,8 @@ def main():
     args = parser.parse_args()
     if not args.password:
         raise Exception('Password is mandatory!')
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
 
     FUSE(OsmTraces(args.user[0], args.password[0]), args.mountpoint[0], nothreads=True, foreground=True,
          debug=args.debug)
