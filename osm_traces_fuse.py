@@ -1,14 +1,16 @@
 #!/usr/bin/env python
 '''
-Mounts OSM traces of a logged in user
-as a read-only FUSE filesystem
+Mounts OSM traces of a logged in user as a read-only FUSE filesystem
 
 Usage:
- osm_traces_fuse.py -p PASSWORD OSMLOGIN MOUNTPOINT
+ osm_traces_fuse.py -o password=PASSWORD OSMLOGIN MOUNTPOINT
 
 Example:
  mkdir /tmp/mytraces
- osm_traces_fuse.py -p mypass 'Joe Doe' /tmp/mytraces
+ osm_traces_fuse.py -o password=mypass 'Joe Doe' /tmp/mytraces
+
+Fstab entry:
+ osm_traces_fuse.py#Joe\040Doe    /tmp/traces    fuse    user,noauto,ro,password=mypass
 
 '''
 
@@ -128,16 +130,19 @@ def main():
     parser = argparse.ArgumentParser(description='Mount OSM traces as FUSE Filesystem')
     parser.add_argument('user', nargs=1, help='OSM username')
     parser.add_argument('mountpoint', nargs=1, help='Mountpoint')
-    parser.add_argument('-p', dest='password', nargs=1, help='Password')
-    parser.add_argument('-d', dest='debug', action='store_true', help='Debug mode')
+    parser.add_argument('-o', nargs=1, dest='options', help='Mount options (currently only password is parsed and required)')
+    parser.add_argument('-d', dest='debug', action='store_true', default=False, help='Debug mode')
+    parser.add_argument('-f', dest='foreground', action='store_true', default=False, help='Run in foreground')
 
     args = parser.parse_args()
-    if not args.password:
+    options = args.options[0].split(',')
+    if not [x for x in options if re.match('password=.', x)]:
         raise Exception('Password is mandatory!')
+    password = [x.split('=')[1] for x in options if x.startswith('password=')][0]
     if args.debug:
         logging.basicConfig(level=logging.DEBUG)
 
-    FUSE(OsmTraces(args.user[0], args.password[0]), args.mountpoint[0], nothreads=True, foreground=True,
+    FUSE(OsmTraces(args.user[0], password), args.mountpoint[0], nothreads=True, foreground=args.foreground,
          debug=args.debug)
 
 
